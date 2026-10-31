@@ -136,6 +136,50 @@ static long APS5_VABI SumThroughCopy(int count, ...) {
     return sum;
 }
 
+static void CheckWideStreamConversions() {
+#ifndef _WIN32
+    FileStream* stream = SeededStream("7 \xc3\xa9t\xc3\xa9 ab\xe2\x82\xac" "c xyz");
+    int number = 0;
+    std::int64_t position = -1;
+    char16_t word[8]{};
+    char16_t set[8]{};
+    char16_t single = 0;
+    char tail[4]{};
+    Require(fscanf_nid_postfix(stream, "%d %ls", &number, word) == 2 && number == 7 && std::u16string(word) == u"\u00e9t\u00e9", "fscanf %ls decodes UTF-8 from the stream");
+    Require(ScanStream(stream, " %l[abc]", set) == 1 && std::u16string(set) == u"ab", "vfscanf %l[ stops before a character outside the set");
+    Require(ScanStream(stream, "%lc", &single) == 1 && single == u'\u20ac', "the multibyte character that ended the set stays in the stream");
+    Require(fscanf_nid_postfix(stream, "%3s", tail) == 1 && std::strcmp(tail, "c") == 0, "a narrow conversion continues after the wide ones");
+    Require(fscanf_nid_postfix(stream, "%2S%ln", word, &position) == 1 && std::u16string(word) == u"xy" && position == 3, "%S honours its width and %ln counts bytes");
+    Require(NextByte(stream) == 'z', "the stream stops after the last character the field used");
+    Require(fscanf_nid_postfix(stream, "%ls", word) == EOF, "fscanf %ls at end of file");
+    stream->Close();
+    delete stream;
+
+    stream = SeededStream("-9 12 ab");
+    long long quad = 0;
+    std::int64_t skipped = -1;
+    Require(fscanf_nid_postfix(stream, "%qd %*2qd%qn %ls", &quad, &skipped, word) == 2 && quad == -9 && skipped == 5 && std::u16string(word) == u"ab", "fscanf reads q as ll next to a wide conversion");
+    stream->Close();
+    delete stream;
+
+    stream = SeededStream("abcd ef");
+    Require(fscanf_s_nid_postfix(stream, "%ls", word, 3u) == 0 && word[0] == 0, "fscanf_s rejects an undersized %ls buffer");
+    Require(fscanf_s_nid_postfix(stream, "%ls", word, 3u) == 1 && std::u16string(word) == u"cd", "fscanf_s continues after the characters the rejected field used");
+    Require(fscanf_s_nid_postfix(stream, "%ls", word, 3u) == 1 && std::u16string(word) == u"ef", "fscanf_s %ls that fits");
+    stream->Close();
+    delete stream;
+
+    FileStream* const savedInput = __stdinp_nid_postfix;
+    stream = SeededStream("\xc3\xa9!");
+    __stdinp_nid_postfix = stream;
+    Require(scanf_nid_postfix("%C", &single) == 1 && single == u'\u00e9', "scanf %C reads the guest standard input");
+    Require(ScanInput("%lc", &single) == 1 && single == u'!', "vscanf %lc reads the guest standard input");
+    __stdinp_nid_postfix = savedInput;
+    stream->Close();
+    delete stream;
+#endif
+}
+
 static void CheckVacopy() {
     long expected = 0;
     for (long index = 1; index <= 9; ++index) expected += index * 100 * index - index * 100;
@@ -290,6 +334,7 @@ int main() {
     char16_t letters[4]{};
     Require(ScanWideSized(u"abcdef", u"%3ls", letters, 4u) == 1 && std::u16string(letters) == u"abc", "vswscanf_s %ls with a size");
     Require(ScanWideSized(u"abcdef", u"%ls", letters, 4u) == 0 && letters[0] == 0, "vswscanf_s rejects a too small buffer");
+    CheckWideStreamConversions();
     CheckVacopy();
     return 0;
 }

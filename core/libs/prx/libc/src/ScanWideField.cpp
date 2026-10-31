@@ -32,6 +32,13 @@ std::size_t DecodeUtf8(const char* text, char32_t* point) {
 
 namespace LibcDetail {
 
+std::size_t WideScanSequenceLength(unsigned char lead) {
+    if ((lead & 0xE0) == 0xC0) return 2;
+    if ((lead & 0xF0) == 0xE0) return 3;
+    if ((lead & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+
 std::size_t ReadWideScanCharacter(const char* text, char32_t* point) {
     const std::size_t size = DecodeUtf8(text, point);
     if (size == 0) NotImplemented_nid_no_patch("scanf 16-bit wide conversion of input that is not UTF-8");
